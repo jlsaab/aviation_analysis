@@ -1,0 +1,196 @@
+---
+title: "Aviation industry analysis during COVID"
+author: "Jessica Saab"
+date: "2/23/2022"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(fs)
+library(sf)
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(janitor)
+library(skimr)
+library(gt)
+library(lubridate)
+library(tidylog)
+library(stringr)
+```
+
+
+### Loading in the data and merging them into a data frame
+
+```{r}
+raw12 <- read_csv("cy12-commercial-service-enplanements.csv") %>% clean_names() %>% 
+  select(locid, cy_11_enplanements, cy_12_enplanements)
+raw14 <- read_csv("cy14-commercial-service-enplanements.csv") %>% clean_names() %>% 
+  select(locid, cy_13_enplanements, cy_14_enplanements)
+raw16 <- read_csv("cy16-commercial-service-enplanements.csv") %>% clean_names() %>% 
+  select(locid, cy_15_enplanements, cy_16_enplanements)
+raw18 <- read_csv("cy18-commercial-service-enplanements.csv") %>% clean_names() 
+raw19 <- read_csv("cy19-commercial-service-enplanements.csv") %>% clean_names() %>% 
+  select(locid, cy_19_enplanements)
+raw20 <- read_csv("cy20-commercial-service-enplanements.csv") %>% clean_names() %>% 
+  select(locid, cy_20_enplanements)
+
+df <- raw18 %>% 
+  left_join(raw12, by = "locid") %>% 
+  left_join(raw14, by = "locid") %>% 
+  left_join(raw16, by = "locid") %>% 
+  left_join(raw19, by = "locid") %>% 
+  left_join(raw20, by = "locid") %>% 
+  mutate(
+    rides2011 = as.numeric(cy_11_enplanements),
+    rides2012 = as.numeric(cy_12_enplanements),
+    rides2013 = as.numeric(cy_13_enplanements),
+    rides2014 = as.numeric(cy_14_enplanements),
+    rides2015 = as.numeric(cy_15_enplanements),
+    rides2016 = as.numeric(cy_16_enplanements),
+    rides2017 = as.numeric(cy_17_enplanements),
+    rides2018 = as.numeric(cy_18_enplanements),
+    rides2019 = as.numeric(cy_19_enplanements),
+    rides2020 = as.numeric(cy_20_enplanements),
+  ) %>% 
+  select(!(cy_18_enplanements:cy_20_enplanements)) %>% 
+  select(-rank) %>% 
+  pivot_longer(
+    cols = starts_with("rides"),
+    names_to = "year", 
+    values_to = "rides",
+    values_drop_na = TRUE
+    ) %>% 
+  mutate(
+    year = substr(year, 6, 9)
+  ) %>% 
+  glimpse()
+```
+
+### Analysis on totals
+
+By hub size
+```{r}
+df %>% 
+  group_by(hub) %>% 
+  summarize(
+    total = sum(rides, na.rm = TRUE),
+    average = mean(rides, na.rm = TRUE)
+) %>% 
+  arrange(desc(total))
+```
+
+By state
+```{r}
+df %>% 
+  group_by(st) %>% 
+  summarize(
+    total = sum(rides, na.rm = TRUE),
+    average = mean(rides, na.rm = TRUE)
+) %>% 
+  arrange(desc(total))
+```
+
+
+By year
+```{r}
+df %>% 
+  group_by(year) %>% 
+  summarize(rides = mean(rides, na.rm = TRUE)) %>% 
+  arrange()
+```
+
+
+Top ten busiest airports
+
+```{r}
+df %>% 
+  group_by(locid, city) %>% 
+  summarise(
+    total = sum(rides),
+    average = mean(rides)
+  ) %>% 
+  arrange(desc(total)) %>% 
+  head(10)
+```
+
+Separating out the top ten airports
+```{r}
+top10 <- c("ATL", "LAX", "ORD", "DFW", "DEN", "JFK", "SFO", "LAS", "CLT", "PHX") %>% 
+  as.data.frame %>% 
+  inner_join(df, by = c("." = "locid")) 
+
+graph.top10 <- 
+  top10 %>% 
+  ggplot(aes(year, rides / 1000000, color = .)) +
+  geom_line(aes(group = .), size = .5, alpha = .5) +
+  geom_point() +
+  theme_minimal() +
+  labs(
+    title = "Enplanements at the top 10 U.S. Airports",
+    subtitle = "From 2011 to 2020",
+    x = "Year",
+    y = "Enplanements (by millions)",
+    caption = "Source: Federal Aviation Administration"
+  ) +
+  theme(legend.title = element_blank())
+graph.top10
+```
+
+
+```{r}
+top10 %>% 
+  rename(airport = ".") %>% 
+  group_by(airport, year) %>% 
+  summarize(
+    flights = first(rides)
+  )
+```
+
+
+Map attempt
+
+```{r}
+states <- st_read("cb_2018_us_state_20m/cb_2018_us_state_20m.shp") %>% 
+  clean_names() %>% 
+  filter(!(name == "Alaska" | name == "Hawaii" | name == "Puerto Rico")) %>% 
+  ggplot() + 
+  geom_sf(
+    data = states, 
+    color = "black", 
+    size = .5, 
+    alpha = 0.7
+    ) +
+  theme_void()
+states
+```
+
+
+```{r}
+df %>% 
+  ggplot(aes(year, rides, color = hub)) +
+  geom_line(aes(group = st), size = 0.5) +
+  geom_point()
+```
+
+Trying to find percent change
+
+```{r}
+df %>% 
+  group_by(year) %>% 
+  summarise(
+    average = mean(rides),
+    pct_change = average / average
+  )
+```
+
+
+
+```{r}
+top10 %>% 
+  summarise(
+    average
+  )
+```
+
